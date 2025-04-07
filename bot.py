@@ -226,20 +226,21 @@ async def get_news():
             link = entry.link
             summary = entry.get("summary", "")
             published = entry.get("published_parsed")
+
             if published:
                 pub_time = datetime(*published[:6])
                 if datetime.utcnow() - pub_time > timedelta(hours=24):
                     continue
-            cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
-            cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
-if not cur.fetchone():
-    tags = [t['term'] for t in entry.get('tags', [])] if 'tags' in entry else []
-    category = entry.get('category')
-    content = entry.get('content', [{}])[0].get('value') if 'content' in entry else None
 
-    if await is_relevant(title, summary, tags, category, content):
-        cur.execute("INSERT INTO sent_links (link) VALUES (?)", (link,))
-        new_articles.append({'title': title, 'link': link})
+            cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
+            if not cur.fetchone():
+                tags = [t['term'] for t in entry.get('tags', [])] if 'tags' in entry else []
+                category = entry.get('category')
+                content = entry.get('content', [{}])[0].get('value') if 'content' in entry else None
+
+                if await is_relevant(title, summary, tags, category, content):
+                    cur.execute("INSERT INTO sent_links (link) VALUES (?)", (link,))
+                    new_articles.append({'title': title, 'link': link})
 
     conn.commit()
     conn.close()
