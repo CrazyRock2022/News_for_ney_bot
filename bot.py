@@ -11,8 +11,10 @@ from datetime import datetime, timedelta
 import openai
 import os
 
-API_TOKEN = '7790214437:AAE1rt9jfsQ76RLlyvOuZvnFqHUIE2EbmyA'
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Установи переменную окружения на Render
+API_TOKEN = '7790214437:AAE1rt9jfsQ76RLlyvOuZvnFqHUIE2EbmyA'  # замени на свой токен
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+openai.api_key = OPENAI_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
@@ -57,12 +59,7 @@ async def send_digest(message: types.Message):
         await message.answer("Пока нет свежих релевантных новостей.")
 
 async def is_relevant(title, summary):
-    openai.api_key = OPENAI_API_KEY
-    prompt = f"Определи, относится ли следующая новость к криптовалютам, цифровому рублю, стейблкоинам, крипте в Кыргызстане или проекту A7A5:
-
-'{title} — {summary}'
-
-Ответь одним словом: Да или Нет."
+    prompt = f"Определи, относится ли следующая новость к криптовалютам, цифровому рублю, стейблкоинам, крипте в Кыргызстане или проекту A7A5:\n\n'{title} — {summary}'\n\nОтветь одним словом: Да или Нет."
     try:
         response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
@@ -70,6 +67,7 @@ async def is_relevant(title, summary):
             max_tokens=3
         )
         answer = response.choices[0].message['content'].strip().lower()
+        logging.info(f"GPT ответ: {answer} — {'релевантно' if 'да' in answer else 'нет'}")
         return "да" in answer
     except Exception as e:
         logging.warning(f"OpenAI error: {e}")
