@@ -173,7 +173,7 @@ async def list_topics(message: types.Message):
 
 # ---------- GPT-ФИЛЬТР ----------
 
-async def is_relevant(title, summary):
+async def is_relevant(title, summary, tags=None, category=None, content=None):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("SELECT word FROM topics")
@@ -181,7 +181,21 @@ async def is_relevant(title, summary):
     conn.close()
 
     topic_list = ", ".join(keywords)
-    prompt = f"Определи, относится ли новость к следующим темам: {topic_list}.\n\n'{title} — {summary}'\n\nОтветь одним словом: Да или Нет."
+
+    full_context = f"Заголовок: {title}\nОписание: {summary}"
+
+    if category:
+        full_context += f"\nКатегория: {category}"
+    if tags:
+        full_context += f"\nТеги: {', '.join(tags)}"
+    if content:
+        full_context += f"\nПолный текст: {content[:1000]}..."  # ограничим до 1000 символов
+
+    prompt = (
+        f"Определи, относится ли следующая новость к темам: {topic_list}.\n\n"
+        f"{full_context}\n\n"
+        f"Ответь одним словом: Да или Нет."
+    )
 
     try:
         response = await openai.ChatCompletion.acreate(
@@ -217,10 +231,15 @@ async def get_news():
                 if datetime.utcnow() - pub_time > timedelta(hours=24):
                     continue
             cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
-            if not cur.fetchone():
-                if await is_relevant(title, summary):
-                    cur.execute("INSERT INTO sent_links (link) VALUES (?)", (link,))
-                    new_articles.append({'title': title, 'link': link})
+            cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
+if not cur.fetchone():
+    tags = [t['term'] for t in entry.get('tags', [])] if 'tags' in entry else []
+    category = entry.get('category')
+    content = entry.get('content', [{}])[0].get('value') if 'content' in entry else None
+
+    if await is_relevant(title, summary, tags, category, content):
+        cur.execute("INSERT INTO sent_links (link) VALUES (?)", (link,))
+        new_articles.append({'title': title, 'link': link})
 
     conn.commit()
     conn.close()
