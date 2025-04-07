@@ -248,9 +248,9 @@ async def scheduled_job():
 
 async def on_startup(_):
     init_db()
+    await bot.delete_webhook(drop_pending_updates=True)  # вот эта строка сбрасывает Webhook
     scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
     scheduler.start()
-
 if __name__ == "__main__":
     init_db()
     executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
