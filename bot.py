@@ -52,8 +52,7 @@ async def send_digest(message: types.Message):
     articles = await get_news()
     if articles:
         for a in articles:
-            await message.answer(f"<b>{a['title']}</b>
-{a['link']}", parse_mode=ParseMode.HTML)
+            await message.answer(f"<b>{a['title']}</b>{a['link']}", parse_mode=ParseMode.HTML)
     else:
         await message.answer("Пока нет свежих релевантных новостей.")
 
@@ -113,8 +112,7 @@ async def scheduled_job():
     for user in users:
         for a in articles:
             try:
-                await bot.send_message(user[0], f"<b>{a['title']}</b>
-{a['link']}", parse_mode=ParseMode.HTML)
+                await bot.send_message(user[0], f"<b>{a['title']}</b>{a['link']}", parse_mode=ParseMode.HTML)
             except Exception as e:
                 logging.warning(f"Failed to send to {user[0]}: {e}")
 
