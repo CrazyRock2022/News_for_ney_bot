@@ -50,7 +50,7 @@ async def send_digest(message: types.Message):
     articles = get_news()
     if articles:
         for a in articles:
-            await message.answer(f"<b>{a['title']}</b>
+            await message.answer(f"<b>{a['title']}</b>\n{a['link']}", parse_mode=ParseMode.HTML)
 {a['link']}", parse_mode=ParseMode.HTML)
     else:
         await message.answer("Пока нет свежих новостей по твоим темам.")
