@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 import openai
 import os
 
-API_TOKEN = '7790214437:AAE1rt9jfsQ76RLlyvOuZvnFqHUIE2EbmyA'  # замените на свой
+API_TOKEN = os.getenv("API_TOKEN")  # замените на свой
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
