@@ -66,7 +66,7 @@ async def start(message: types.Message):
 
 @dp.callback_query_handler(lambda c: c.data == "help")
 @dp.message_handler(commands=["help"])
-async def help_command(message: types.Message | types.CallbackQuery):
+async def help_command(message: Union[types.Message, types.CallbackQuery]):
     text = (
         "Вот что я умею:\n\n"
         "/digest — получить свежие релевантные новости\n"
