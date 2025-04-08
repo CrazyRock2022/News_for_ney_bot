@@ -64,24 +64,27 @@ async def start(message: types.Message):
     )
     await message.answer("Привет! Я пришлю тебе свежие и релевантные новости по теме A7A5, крипты и цифрового рубля.", reply_markup=keyboard)
 
+# ---------- СПРАВКА ----------
+
+HELP_TEXT = (
+    "Вот что я умею:\n\n"
+    "/digest — получить свежие релевантные новости\n"
+    "/addsource <url> — добавить сайт/RSS источник\n"
+    "/removesource <url> — удалить источник\n"
+    "/listsources — показать все источники\n"
+    "/addtopic <тема> — добавить ключевое слово\n"
+    "/removetopic <тема> — удалить ключевое слово\n"
+    "/listtopics — показать все ключевые слова\n"
+    "/help — справка\n"
+)
+
 @dp.callback_query_handler(lambda c: c.data == "help")
+async def help_callback(callback: types.CallbackQuery):
+    await callback.message.edit_text(HELP_TEXT)
+
 @dp.message_handler(commands=["help"])
-async def help_command(message: Union[types.Message, types.CallbackQuery]):
-    text = (
-        "Вот что я умею:\n\n"
-        "/digest — получить свежие релевантные новости\n"
-        "/addsource <url> — добавить сайт/RSS источник\n"
-        "/removesource <url> — удалить источник\n"
-        "/listsources — показать все источники\n"
-        "/addtopic <тема> — добавить ключевое слово\n"
-        "/removetopic <тема> — удалить ключевое слово\n"
-        "/listtopics — показать все ключевые слова\n"
-        "/help — справка\n"
-    )
-    if isinstance(message, types.CallbackQuery):
-        await message.message.edit_text(text)
-    else:
-        await message.answer(text)
+async def help_command(message: types.Message):
+    await message.answer(HELP_TEXT)
 
 @dp.message_handler(commands=["digest"])
 async def send_digest(message: types.Message):
