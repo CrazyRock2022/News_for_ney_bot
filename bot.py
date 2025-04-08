@@ -33,11 +33,30 @@ def init_db():
     cur.execute("CREATE TABLE IF NOT EXISTS topics (word TEXT PRIMARY KEY)")
     # начальные источники
     default_sources = [
-        'https://forklog.com/feed/',
-        'https://ru.cointelegraph.com/rss',
-        'https://rssexport.rbc.ru/rbcnews/news/eco/index.rss',
-        'https://akipress.org/rss/news.rss',
-        'https://24.kg/rss/'
+    # Криптовалюта (рус)
+    'https://forklog.com/feed/',
+    'https://ru.cointelegraph.com/rss',
+    'https://bits.media/rss/news/',
+    'https://incrypted.com/feed/',
+
+    # Криптовалюта (мировые англ)
+    'https://cointelegraph.com/rss',
+    'https://decrypt.co/feed',
+    'https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml',
+
+    # Экономика и финансы РФ и СНГ
+    'https://www.cbr.ru/rss/',                            # Банк России
+    'http://www.finmarket.ru/rss/',                       # Финансы и аналитика
+    'https://rssexport.rbc.ru/rbcnews/news/eco/index.rss',# Экономика
+    'https://www.kommersant.ru/RSS/news.xml',             # Общие новости
+    'https://www.forbes.ru/rss',                          # Бизнес и финансы
+    'https://24.kg/rss/',                                 # Кыргызстан
+    'https://akipress.org/rss/news.rss',                  # Кыргызстан
+    'https://www.themoscowtimes.com/rss',                 # Экономика России на англ
+
+    # Международные фин. организации
+    'https://blogs.imf.org/feed/',                        # МВФ
+    'https://www.bis.org/rss/home.xml',                   # Банковские регуляторы
     ]
     for url in default_sources:
         cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
