@@ -10,6 +10,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import openai
 import os
+from typing import Union
 
 API_TOKEN = os.getenv("API_TOKEN")  # замените на свой
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
