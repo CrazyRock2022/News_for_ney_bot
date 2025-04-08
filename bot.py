@@ -40,6 +40,7 @@ def init_db():
     'https://incrypted.com/feed/',
 
     # Криптовалюта (мировые англ)
+    'https://cryptopanic.com/news/rss/',
     'https://cointelegraph.com/rss',
     'https://decrypt.co/feed',
     'https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml',
