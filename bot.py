@@ -258,3 +258,23 @@ async def get_news():
     conn.commit()
     conn.close()
     return new_articles
+
+# Ваши импорты и основная часть кода
+
+# Добавление функции on_startup
+async def on_startup(_):
+    # Инициализация базы данных
+    init_db()
+
+    # Удаление старых вебхуков
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    # Убираем вебхук
+    await bot.set_webhook(url='')
+
+    # Запуск планировщика
+    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
+    scheduler.start()
+
+# Здесь бот будет ждать обновлений
+executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
