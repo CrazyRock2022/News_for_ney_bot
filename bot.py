@@ -207,7 +207,6 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
     topic_list = ", ".join(keywords)
 
     full_context = f"Заголовок: {title}\nОписание: {summary}"
-
     if category:
         full_context += f"\nКатегория: {category}"
     if tags:
@@ -216,24 +215,27 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
         full_context += f"\nПолный текст: {content[:1000]}..."  # ограничим до 1000 символов
 
     prompt = (
-        f"Определи, относится ли следующая новость к темам: {topic_list}.\n\n"
+        f"Ты аналитик криптовалютного проекта A7A5. "
+        f"Проанализируй новость и ответь: может ли она быть потенциально релевантной проекту A7A5, "
+        f"если она касается криптовалют, стейблкоинов, цифрового рубля, экономики Кыргызстана, финансовых регуляторов, "
+        f"или мировой криптоинфраструктуры?\n\n"
         f"{full_context}\n\n"
         f"Ответь одним словом: Да или Нет."
     )
 
     try:
         response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo",
+            model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=3
         )
         answer = response.choices[0].message['content'].strip().lower()
-        logging.info(f"GPT: {answer} -> {'релевантно' if 'да' in answer else 'нет'}")
+        print(f"\n[GPT] Ответ: {answer} — {'Релевантно' if 'да' in answer else 'Нет'}\n")
         return "да" in answer
     except Exception as e:
         logging.warning(f"OpenAI error: {e}")
         return False
-
+        
 # ---------- ПАРСИНГ ----------
 
 async def get_news():
