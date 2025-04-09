@@ -1,3 +1,6 @@
+async def scheduled_job():
+    # Ваш код для выполнения задачи, например, отправка новостей
+    print("Scheduled job running!")
 import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types
