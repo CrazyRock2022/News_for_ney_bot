@@ -102,6 +102,8 @@ HELP_TEXT = (
     "/addsource <url> — добавить сайт/RSS источник\n"
     "/removesource <url> — удалить источник\n"
     "/listsources — показать все источники\n"
+    "/log — показать лог работы GPT\n"
+    "/clearlog — очистить лог\n"
     "/help — справка\n"
 )
 
@@ -162,7 +164,29 @@ async def list_sources(message: types.Message):
     sources = "\n".join(f"- {r[0]}" for r in rows)
     await message.reply(f"Текущие источники:\n{sources}")
 
+# ---------- ЛОГИ ----------
 
+@dp.message_handler(commands=["log"])
+async def send_log(message: types.Message):
+    try:
+        with open("news_checked.log", "r", encoding="utf-8") as f:
+            log_content = f.read()
+        if log_content:
+            for chunk in [log_content[i:i+4000] for i in range(0, len(log_content), 4000)]:
+                await message.answer(f"<pre>{chunk}</pre>", parse_mode="HTML")
+        else:
+            await message.answer("Файл логов пуст.")
+    except FileNotFoundError:
+        await message.answer("Файл логов не найден.")
+
+@dp.message_handler(commands=["clearlog"])
+async def clear_log(message: types.Message):
+    try:
+        open("news_checked.log", "w").close()
+        await message.answer("Файл логов успешно очищен.")
+    except Exception as e:
+        await message.answer(f"Ошибка при очистке: {e}")
+        
 # ---------- GPT-ФИЛЬТР ----------
 
 async def is_relevant(title, summary, tags=None, category=None, content=None):
