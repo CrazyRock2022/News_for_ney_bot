@@ -163,7 +163,7 @@ async def list_sources(message: types.Message):
     await message.reply(f"Текущие источники:\n{sources}")
 
 
-            # ---------- GPT-ФИЛЬТР ----------
+# ---------- GPT-ФИЛЬТР ----------
 
 async def is_relevant(title, summary, tags=None, category=None, content=None):
     keywords = FIXED_TOPICS
