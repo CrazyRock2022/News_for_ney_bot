@@ -253,7 +253,7 @@ async def get_news():
 
             if published:
                 pub_time = datetime(*published[:6])
-                if datetime.utcnow() - pub_time > timedelta(hours=24):
+                if datetime.utcnow() - pub_time > timedelta(hours=168):
                     continue
 
             cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
