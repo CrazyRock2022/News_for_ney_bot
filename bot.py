@@ -166,7 +166,32 @@ async def list_sources(message: types.Message):
 # ---------- GPT-ФИЛЬТР ----------
 
 async def is_relevant(title, summary, tags=None, category=None, content=None):
-    keywords = FIXED_TOPICS
+    keywords = FIXED_TOPICS + [
+        "А7А5",
+        "A7A5",
+        "Кыргызстан",
+        "КР крипта",
+        "crypto",
+        "цифровой рубль",
+        "стейблкоин",
+        "stablecoin",
+        "CBDC",
+        "digital currency"
+        "ключевая ставка",
+        "заседание ЦБ",
+        "ставка рубля",
+        "ЦБ РФ",
+        "прогноз по ставке",
+        "центробанк",
+        "base rate",
+        "central bank",
+        "rate decision",
+        "CBR",
+        "russian interest rate",
+        "ruble forecast",
+        "russian central bank",
+    ]
+
     topic_list = ", ".join(keywords)
 
     full_context = f"Заголовок: {title}\nОписание: {summary}"
@@ -178,10 +203,9 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
         full_context += f"\nПолный текст: {content[:1000]}..."
 
     prompt = (
-        f"Ты аналитик криптовалютного проекта A7A5. "
-        f"Проанализируй новость и ответь: может ли она быть потенциально релевантной проекту A7A5, "
-        f"если она касается криптовалют, стейблкоинов, цифрового рубля, экономики Кыргызстана, финансовых регуляторов, "
-        f"или мировой криптоинфраструктуры?\n\n"
+        f"Ты эксперт криптовалютного проекта A7A5. "
+        f"Проанализируй новость и скажи, может ли она быть релевантной проекту A7A5, "
+        f"если она касается хотя бы одной из тем: {topic_list}.\n\n"
         f"{full_context}\n\n"
         f"Ответь одним словом: Да или Нет."
     )
