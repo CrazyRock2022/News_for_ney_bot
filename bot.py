@@ -259,7 +259,10 @@ async def get_news():
     conn.close()
     return new_articles
 
-# Ваши импорты и основная часть кода
+async def scheduled_job():
+    # Ваш код для выполнения задачи (например, отправка новостей)
+    print("Scheduled job running!")
+
 
 # Добавление функции on_startup
 async def on_startup(_):
