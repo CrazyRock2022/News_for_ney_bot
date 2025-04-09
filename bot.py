@@ -12,16 +12,11 @@ import openai
 import os
 from typing import Union
 
-# Настроим логирование
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', handlers=[
-    logging.FileHandler('news_bot.log'),
-    logging.StreamHandler()
-])
-
-API_TOKEN = os.getenv("API_TOKEN")
+API_TOKEN = os.getenv("API_TOKEN")  # замените на свой
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
@@ -49,12 +44,26 @@ def init_db():
     cur.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")
     cur.execute("CREATE TABLE IF NOT EXISTS sent_links (link TEXT PRIMARY KEY)")
     cur.execute("CREATE TABLE IF NOT EXISTS sources (url TEXT PRIMARY KEY)")
+    # начальные источники
     default_sources = [
-        # Пример источников (добавьте сюда актуальные)
-        'https://forklog.com/feed/',
-        'https://ru.cointelegraph.com/rss',
-        'https://bits.media/rss/news/',
-        'https://incrypted.com/feed/'
+    'https://forklog.com/feed/',
+    'https://ru.cointelegraph.com/rss',
+    'https://bits.media/rss/news/',
+    'https://incrypted.com/feed/',
+    'https://cryptopanic.com/news/rss/',
+    'https://cointelegraph.com/rss',
+    'https://decrypt.co/feed',
+    'https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml',
+    'https://www.cbr.ru/rss/',
+    'http://www.finmarket.ru/rss/',
+    'https://rssexport.rbc.ru/rbcnews/news/eco/index.rss',
+    'https://www.kommersant.ru/RSS/news.xml',
+    'https://www.forbes.ru/rss',
+    'https://24.kg/rss/',
+    'https://akipress.org/rss/news.rss',
+    'https://www.themoscowtimes.com/rss',
+    'https://blogs.imf.org/feed/',
+    'https://www.bis.org/rss/home.xml',
     ]
     for url in default_sources:
         cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
@@ -62,7 +71,6 @@ def init_db():
     conn.close()
 
 # ---------- КОМАНДЫ ----------
-
 @dp.message_handler(CommandStart())
 async def start(message: types.Message):
     user_id = message.from_user.id
@@ -78,7 +86,6 @@ async def start(message: types.Message):
     await message.answer("Привет! Я пришлю тебе свежие и релевантные новости по теме A7A5, крипты и цифрового рубля.", reply_markup=keyboard)
 
 # ---------- СПРАВКА ----------
-
 HELP_TEXT = (
     "Вот что я умею:\n\n"
     "/digest — получить свежие релевантные новости\n"
@@ -98,60 +105,61 @@ async def help_command(message: types.Message):
 
 @dp.message_handler(commands=["digest"])
 async def send_digest(message: types.Message):
-    logging.info("Начинаю получать новости...")
+    articles = await get_news()  # Получаем новости
+
+    # Статистика по каждому источнику
+    sources_stats = {}
+    for article in articles:
+        source = article['source']
+        if source not in sources_stats:
+            sources_stats[source] = {'relevant': 0, 'possible': 0, 'irrelevant': 0, 'total': 0}
+
+        if article['status'] == 'Relevant':
+            sources_stats[source]['relevant'] += 1
+        elif article['status'] == 'Irrelevant':
+            sources_stats[source]['irrelevant'] += 1
+        elif article['status'] == 'Possible':
+            sources_stats[source]['possible'] += 1
+
+        sources_stats[source]['total'] += 1
+
+    # Отправляем статистику
+    stats_message = "Результаты:\n\n"
+    total_relevant = total_possible = total_irrelevant = 0
+
+    for source, stats in sources_stats.items():
+        stats_message += f"{source} — прочитано {stats['total']} новостей, из которых {stats['relevant']} релевантных, {stats['possible']} возможно релевантных, {stats['irrelevant']} нерелевантных\n"
+        total_relevant += stats['relevant']
+        total_possible += stats['possible']
+        total_irrelevant += stats['irrelevant']
+
+    stats_message += f"\nИтого: прочитано {total_relevant + total_possible + total_irrelevant} новостей, из которых {total_relevant} релевантных, {total_possible} возможно релевантных, {total_irrelevant} нерелевантных.\n"
+
+    # Кнопка для получения новостей
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("Получить новости", callback_data="get_news")
+    )
+
+    await message.answer(stats_message, reply_markup=keyboard)
+
+# ---------- Кнопка "Получить новости" ----------
+@dp.callback_query_handler(lambda c: c.data == "get_news")
+async def get_news_callback(callback: types.CallbackQuery):
+    # Сначала отправляем релевантные новости
     articles = await get_news()
-    if articles:
-        for a in articles:
-            await message.answer(f"<b>{a['title']}</b>\n{a['link']}", parse_mode=ParseMode.HTML)
-    else:
-        await message.answer("Пока нет свежих релевантных новостей.")
-    logging.info("Завершено получение новостей.")
+    relevant_articles = [article for article in articles if article['status'] == 'Relevant']
+    
+    if relevant_articles:
+        for article in relevant_articles:
+            await callback.message.answer(f"<b>{article['title']}</b>\n{article['link']}", parse_mode=ParseMode.HTML)
 
-# ---------- ИСТОЧНИКИ ----------
-@dp.message_handler(commands=["addsource"])
-async def add_source(message: types.Message):
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await message.reply("Укажи ссылку: /addsource <url>")
-    url = parts[1]
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
-    conn.commit()
-    conn.close()
-    logging.info(f"Источник {url} добавлен.")
-    await message.reply("Источник добавлен!")
-
-@dp.message_handler(commands=["removesource"])
-async def remove_source(message: types.Message):
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await message.reply("Укажи ссылку: /removesource <url>")
-    url = parts[1]
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM sources WHERE url = ?", (url,))
-    conn.commit()
-    conn.close()
-    logging.info(f"Источник {url} удалён.")
-    await message.reply("Источник удалён.")
-
-@dp.message_handler(commands=["listsources"])
-async def list_sources(message: types.Message):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT url FROM sources")
-    rows = cur.fetchall()
-    conn.close()
-    if not rows:
-        return await message.reply("Источников пока нет.")
-    sources = "\n".join(f"- {r[0]}" for r in rows)
-    await message.reply(f"Текущие источники:\n{sources}")
+    # Если релевантных нет, уведомим пользователя
+    if not relevant_articles:
+        await callback.message.answer("Нет релевантных новостей.")
 
 # ---------- GPT-ФИЛЬТР ----------
 async def is_relevant(title, summary, tags=None, category=None, content=None):
     keywords = FIXED_TOPICS
-
     topic_list = ", ".join(keywords)
 
     full_context = f"Заголовок: {title}\nОписание: {summary}"
@@ -178,14 +186,24 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
             max_tokens=3
         )
         answer = response.choices[0].message['content'].strip().lower()
-        logging.info(f"Ответ GPT: {answer} — {'Релевантно' if 'да' in answer else 'Нет'}")
+        with open("news_checked.log", "a") as f:
+            f.write(f"{'-'*40}\n")
+            f.write(f"[GPT] Ответ: {answer}\n")
+            f.write(f"Заголовок: {title}\n")
+            f.write(f"Описание: {summary}\n")
+            if category:
+                f.write(f"Категория: {category}\n")
+            if tags:
+                f.write(f"Теги: {', '.join(tags)}\n")
+            if content:
+                f.write(f"Контент: {content[:500]}...\n")
+        print(f"\n[GPT] Ответ: {answer} — {'Релевантно' if 'да' in answer else 'Нет'}\n")
         return "да" in answer
     except Exception as e:
         logging.warning(f"OpenAI error: {e}")
         return False
 
 # ---------- ПАРСИНГ ----------
-
 async def get_news():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -203,7 +221,7 @@ async def get_news():
 
             if published:
                 pub_time = datetime(*published[:6])
-                if datetime.utcnow() - pub_time > timedelta(hours=168):  # Неделя (168 часов)
+                if datetime.utcnow() - pub_time > timedelta(hours=168):
                     continue
 
             cur.execute("SELECT 1 FROM sent_links WHERE link=?", (link,))
@@ -212,38 +230,29 @@ async def get_news():
                 category = entry.get('category')
                 content = entry.get('content', [{}])[0].get('value') if 'content' in entry else None
 
-                if await is_relevant(title, summary, tags, category, content):
-                    cur.execute("INSERT INTO sent_links (link) VALUES (?)", (link,))
-                    new_articles.append({'title': title, 'link': link})
+                status = await is_relevant(title, summary, tags, category, content)
+                if status:
+                    new_articles.append({
+                        'title': title,
+                        'link': link,
+                        'status': 'Relevant',
+                        'source': url
+                    })
+                elif status is None:
+                    new_articles.append({
+                        'title': title,
+                        'link': link,
+                        'status': 'Possible',
+                        'source': url
+                    })
+                else:
+                    new_articles.append({
+                        'title': title,
+                        'link': link,
+                        'status': 'Irrelevant',
+                        'source': url
+                    })
 
     conn.commit()
     conn.close()
     return new_articles
-
-# ---------- РАССЫЛКА ----------
-async def scheduled_job():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM users")
-    users = cur.fetchall()
-    conn.close()
-    articles = await get_news()
-    if not articles:
-        return
-    for user in users:
-        for a in articles:
-            try:
-                await bot.send_message(user[0], f"<b>{a['title']}</b>\n{a['link']}", parse_mode=ParseMode.HTML)
-            except Exception as e:
-                logging.warning(f"Send error: {e}")
-
-# ---------- СТАРТ ----------
-async def on_startup(_):
-    init_db()
-    await bot.delete_webhook(drop_pending_updates=True)  # вот эта строка сбрасывает Webhook
-    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
-    scheduler.start()
-
-if __name__ == "__main__":
-    init_db()
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
