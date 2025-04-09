@@ -30,7 +30,6 @@ def init_db():
     cur.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")
     cur.execute("CREATE TABLE IF NOT EXISTS sent_links (link TEXT PRIMARY KEY)")
     cur.execute("CREATE TABLE IF NOT EXISTS sources (url TEXT PRIMARY KEY)")
-    cur.execute("CREATE TABLE IF NOT EXISTS topics (word TEXT PRIMARY KEY)")
     # начальные источники
     default_sources = [
     # Криптовалюта (рус)
@@ -61,10 +60,6 @@ def init_db():
     ]
     for url in default_sources:
         cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
-    # начальные темы
-    default_topics = ['A7A5', 'Кыргызстан', 'крипта', 'цифровой рубль', 'стейблкоин', 'CBDC']
-    for word in default_topics:
-        cur.execute("INSERT OR IGNORE INTO topics (word) VALUES (?)", (word,))
     conn.commit()
     conn.close()
 
@@ -92,9 +87,6 @@ HELP_TEXT = (
     "/addsource <url> — добавить сайт/RSS источник\n"
     "/removesource <url> — удалить источник\n"
     "/listsources — показать все источники\n"
-    "/addtopic <тема> — добавить ключевое слово\n"
-    "/removetopic <тема> — удалить ключевое слово\n"
-    "/listtopics — показать все ключевые слова\n"
     "/help — справка\n"
 )
 
@@ -157,43 +149,6 @@ async def list_sources(message: types.Message):
 
 # ---------- ТЕМЫ ----------
 
-@dp.message_handler(commands=["addtopic"])
-async def add_topic(message: types.Message):
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await message.reply("Укажи тему: /addtopic <слово>")
-    word = parts[1].lower()
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("INSERT OR IGNORE INTO topics (word) VALUES (?)", (word,))
-    conn.commit()
-    conn.close()
-    await message.reply("Тема добавлена!")
-
-@dp.message_handler(commands=["removetopic"])
-async def remove_topic(message: types.Message):
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await message.reply("Укажи тему: /removetopic <слово>")
-    word = parts[1].lower()
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("DELETE FROM topics WHERE word = ?", (word,))
-    conn.commit()
-    conn.close()
-    await message.reply("Тема удалена.")
-
-@dp.message_handler(commands=["listtopics"])
-async def list_topics(message: types.Message):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT word FROM topics")
-    rows = cur.fetchall()
-    conn.close()
-    if not rows:
-        return await message.reply("Тем пока нет.")
-    topics = ", ".join([r[0] for r in rows])
-    await message.reply(f"Текущие темы: {topics}")
 
 # ---------- GPT-ФИЛЬТР ----------
 
