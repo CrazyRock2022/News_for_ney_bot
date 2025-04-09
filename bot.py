@@ -12,7 +12,7 @@ import openai
 import os
 from typing import Union
 
-API_TOKEN = os.getenv("API_TOKEN")  # замените на свой
+API_TOKEN = "7790214437:AAE1rt9jfsQ76RLlyvOuZvnFqHUIE2EbmyA"  # замените на свой токен
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
