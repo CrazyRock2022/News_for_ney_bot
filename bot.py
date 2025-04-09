@@ -186,27 +186,26 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
         f"Ответь одним словом: Да или Нет."
     )
 
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-4-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=3
+        try:
+            response = await openai.ChatCompletion.acreate(
+                model="gpt-4-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=3
         )
-    answer = response.choices[0].message['content'].strip().lower()
-        with open("news_checked.log", "a") as f:
-            f.write(f"{'-'*40}\n")
-            f.write(f"[GPT] Ответ: {answer}\n")
-            f.write(f"Заголовок: {title}\n")
-            f.write(f"Описание: {summary}\n")
-            if category:
-                f.write(f"Категория: {category}\n")
-            if tags:
-                f.write(f"Теги: {', '.join(tags)}\n")
-            if content:
-                f.write(f"Контент: {content[:500]}...\n")
-    except Exception as e:
-        logging.warning(f"OpenAI error: {e}")
-        return False
+            answer = response.choices[0].message['content'].strip().lower()
+            with open("news_checked.log", "a") as f:
+                f.write(f"{'-'*40}\n")
+                f.write(f"[GPT] Ответ: {answer}\n")
+                f.write(f"Заголовок: {title}\n")
+                f.write(f"Описание: {summary}\n")
+                if category:
+                    f.write(f"Категория: {category}\n")
+                if tags:
+                    f.write(f"Теги: {', '.join(tags)}\n")
+                if content:
+                    f.write(f"Контент: {content[:500]}...\n")
+            print(f"\n[GPT] Ответ: {answer} — {'Релевантно' if 'да' in answer else 'Нет'}\n")
+            return "да" in answer
         
 # ---------- ПАРСИНГ ----------
 
