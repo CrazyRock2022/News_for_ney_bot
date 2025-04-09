@@ -181,11 +181,11 @@ async def handle_custom_prompt(message: types.Message):
     await message.answer(f"Ваш запрос: {user_prompt}. Я ищу новости, связанные с этим.")
     
     # Пример вызова GPT с запросом от пользователя
-    response = await openai.ChatCompletion.acreate(
-        model="gpt-4-turbo",
-        messages=[{"role": "user", "content": f"Найди новости по теме: {user_prompt}"}],
-        max_tokens=100
-    )
+    response = await openai.completions.create(
+    model="gpt-4",
+    prompt=prompt,
+    max_tokens=3
+)
     answer = response.choices[0].message['content'].strip()
     await message.answer(f"Результаты поиска:\n{answer}")
 
