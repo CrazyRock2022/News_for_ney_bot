@@ -1,3 +1,17 @@
+async def on_startup(_):
+    # Инициализация базы данных
+    init_db()
+
+    # Удаляем старые вебхуки
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    # Убираем вебхук, чтобы точно не было установлено
+    await bot.set_webhook(url='')
+
+    # Запуск планировщика
+    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
+    scheduler.start()
+
 async def scheduled_job():
     # Ваш код для выполнения задачи, например, отправка новостей
     print("Scheduled job running!")
