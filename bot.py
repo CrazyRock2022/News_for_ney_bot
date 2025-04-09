@@ -192,7 +192,7 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
             messages=[{"role": "user", "content": prompt}],
             max_tokens=3
         )
-        answer = response.choices[0].message['content'].strip().lower()
+    answer = response.choices[0].message['content'].strip().lower()
         with open("news_checked.log", "a") as f:
             f.write(f"{'-'*40}\n")
             f.write(f"[GPT] Ответ: {answer}\n")
