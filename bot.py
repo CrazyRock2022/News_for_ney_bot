@@ -165,11 +165,7 @@ async def list_sources(message: types.Message):
 # ---------- GPT-ФИЛЬТР ----------
 
 async def is_relevant(title, summary, tags=None, category=None, content=None):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT word FROM topics")
-    keywords = [row[0] for row in cur.fetchall()]
-    conn.close()
+    keywords = FIXED_TOPICS
 
     topic_list = ", ".join(keywords)
 
