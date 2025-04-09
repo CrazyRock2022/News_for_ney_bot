@@ -263,7 +263,17 @@ async def scheduled_job():
                 await bot.send_message(user[0], f"<b>{a['title']}</b>\n{a['link']}", parse_mode=ParseMode.HTML)
             except Exception as e:
                 logging.warning(f"Send error: {e}")
-
+@dp.message_handler(commands=["log"])
+async def send_log(message: types.Message):
+    try:
+        with open("news_checked.log", "r") as f:
+            lines = f.readlines()[-40:]  # последние 40 строк
+            chunk = "".join(lines)
+        await message.reply(f"<b>Последние записи:</b>\n<pre>{chunk}</pre>", parse_mode="HTML")
+    except Exception as e:
+        await message.reply("Лог недоступен или пуст.")
+        logging.warning(f"Ошибка чтения лога: {e}")
+        
 # ---------- СТАРТ ----------
 
 async def on_startup(_):
