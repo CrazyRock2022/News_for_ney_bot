@@ -163,6 +163,7 @@ async def is_relevant(title, summary, tags=None, category=None, content=None):
     if category:
         full_context += f"\nКатегория: {category}"
     if tags:
+        tags = [str(t) for t in tags]  # Преобразуем каждый элемент в строку
         full_context += f"\nТеги: {', '.join(tags)}"
     if content:
         full_context += f"\nПолный текст: {content[:1000]}..."
