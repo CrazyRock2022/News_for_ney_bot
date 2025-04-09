@@ -22,6 +22,21 @@ dp = Dispatcher(bot)
 scheduler = AsyncIOScheduler()
 DB_FILE = "users.db"
 
+# Фиксированные темы для фильтрации новостей
+FIXED_TOPICS = [
+    "A7A5",
+    "Кыргызстан",
+    "kyrgyzstan",
+    "крипта",
+    "crypto",
+    "цифровой рубль",
+    "digital ruble",
+    "стейблкоин",
+    "stablecoin",
+    "CBDC",
+    "digital currency"
+]
+
 # ---------- ИНИЦИАЛИЗАЦИЯ БД ----------
 
 def init_db():
@@ -146,9 +161,6 @@ async def list_sources(message: types.Message):
         return await message.reply("Источников пока нет.")
     sources = "\n".join(f"- {r[0]}" for r in rows)
     await message.reply(f"Текущие источники:\n{sources}")
-
-# ---------- ТЕМЫ ----------
-
 
 # ---------- GPT-ФИЛЬТР ----------
 
