@@ -242,7 +242,14 @@ async def get_news():
     conn.close()
     return new_articles
 
-# Добавление функции on_startup
+# ---------- Запланированная задача
+async def scheduled_job():
+    print("Scheduled job running!")
+    # Код для выполнения задачи, например, отправка новостей
+    # Например, вызов функции получения новостей
+    await get_news()  # Можно добавлять дополнительные задачи сюда
+
+# ---------- НАЧАЛО РАБОТЫ БОТА И СТАРТ ----------
 async def on_startup(_):
     # Инициализация базы данных
     init_db()
@@ -254,7 +261,7 @@ async def on_startup(_):
     await bot.set_webhook(url='')
 
     # Запуск планировщика
-    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
+    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)  # Можно изменять время по твоему усмотрению
     scheduler.start()
 
 # Здесь бот будет ждать обновлений
