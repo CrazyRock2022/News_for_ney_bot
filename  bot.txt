@@ -1,0 +1,408 @@
+import logging
+import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils import executor
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import feedparser
+import sqlite3
+from datetime import datetime, timedelta
+import openai
+import os
+
+# --- Configuration and API Keys ---
+API_TOKEN = os.getenv("API_TOKEN")  # Telegram bot token
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # OpenAI API key
+openai.api_key = OPENAI_API_KEY
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S")
+
+# Initialize bot, dispatcher, and scheduler
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+scheduler = AsyncIOScheduler()
+
+# Database file
+DB_FILE = "users.db"
+
+# Pending prompt storage (for user-provided prompt after /digest)
+pending_prompt = {}  # dict mapping user_id to list of news articles awaiting custom prompt
+
+# --- Database initialization ---
+def init_db():
+    """Initialize the SQLite database and tables if not exist, and add default sources."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    # Create tables for users, sent links, and sources
+    cur.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")
+    cur.execute("CREATE TABLE IF NOT EXISTS sent_links (link TEXT PRIMARY KEY)")
+    cur.execute("CREATE TABLE IF NOT EXISTS sources (url TEXT PRIMARY KEY)")
+    # Default RSS sources list
+    default_sources = [
+        'https://forklog.com/feed/',
+        'https://ru.cointelegraph.com/rss',
+        'https://bits.media/rss/news/',
+        'https://incrypted.com/feed/',
+        'https://cryptopanic.com/news/rss/',
+        'https://cointelegraph.com/rss',
+        'https://decrypt.co/feed',
+        'https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml',
+        'https://www.cbr.ru/rss/',
+        'http://www.finmarket.ru/rss/',
+        'https://rssexport.rbc.ru/rbcnews/news/eco/index.rss',
+        'https://www.kommersant.ru/RSS/news.xml',
+        'https://www.forbes.ru/rss',
+        'https://24.kg/rss/',
+        'https://akipress.org/rss/news.rss',
+        'https://www.themoscowtimes.com/rss',
+        'https://blogs.imf.org/feed/',
+        'https://www.bis.org/rss/home.xml',
+    ]
+    # Insert default sources if not already present
+    for url in default_sources:
+        cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
+    conn.commit()
+    conn.close()
+    logging.info("Database initialized with default sources.")
+
+# --- Command Handlers ---
+
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message):
+    """Handle the /start command."""
+    user_id = message.from_user.id
+    # Add user to database if not exists
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO users (id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+    logging.info(f"User {user_id} started bot.")
+    # Send welcome message with inline 'Help' button
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("Справка", callback_data="help")
+    )
+    await message.answer(
+        "Привет! Я пришлю тебе свежие и релевантные новости по теме A7A5, крипты и цифрового рубля.",
+        reply_markup=keyboard
+    )
+
+HELP_TEXT = (
+    "Вот что я умею:\n\n"
+    "/digest — получить свежие релевантные новости\n"
+    "/addsource <url> — добавить сайт/RSS источник\n"
+    "/removesource <url> — удалить источник\n"
+    "/listsources — показать все источники\n"
+    "/help — справка\n"
+)
+
+@dp.callback_query_handler(lambda c: c.data == "help")
+async def callback_help(callback_query: types.CallbackQuery):
+    """Handle inline 'Help' button press by editing message text to help text."""
+    await callback_query.message.edit_text(HELP_TEXT)
+
+@dp.message_handler(commands=['help'])
+async def cmd_help(message: types.Message):
+    """Handle the /help command."""
+    await message.answer(HELP_TEXT)
+    logging.info(f"User {message.from_user.id} requested help.")
+
+@dp.message_handler(commands=['listsources'])
+async def cmd_listsources(message: types.Message):
+    """Handle the /listsources command to list all RSS sources."""
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT url FROM sources")
+    rows = cur.fetchall()
+    conn.close()
+    if rows:
+        sources_list = [row[0] for row in rows]
+        sources_text = "Источники новостей:\n" + "\n".join(sources_list)
+        await message.answer(sources_text)
+    else:
+        await message.answer("Список источников пуст.")
+    logging.info(f"User {message.from_user.id} listed sources.")
+
+@dp.message_handler(commands=['addsource'])
+async def cmd_addsource(message: types.Message):
+    """Handle the /addsource command to add a new RSS source URL."""
+    user_id = message.from_user.id
+    # Expecting the URL after the command
+    args = message.get_args()  # gets text after command
+    if not args:
+        await message.reply("Пожалуйста, укажите URL-адрес RSS-источника после команды /addsource.")
+        return
+    url = args.strip()
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT OR IGNORE INTO sources (url) VALUES (?)", (url,))
+        if cur.rowcount == 0:
+            # rowcount 0 means insert was ignored (already exists)
+            await message.reply("Этот источник уже существует в списке.")
+        else:
+            await message.reply("Источник добавлен.")
+            logging.info(f"User {user_id} added source: {url}")
+    except Exception as e:
+        logging.error(f"Failed to add source {url}: {e}")
+        await message.reply("Не удалось добавить источник. Убедитесь, что URL корректен.")
+    finally:
+        conn.commit()
+        conn.close()
+
+@dp.message_handler(commands=['removesource'])
+async def cmd_removesource(message: types.Message):
+    """Handle the /removesource command to remove an existing RSS source."""
+    user_id = message.from_user.id
+    args = message.get_args()
+    if not args:
+        await message.reply("Пожалуйста, укажите URL-адрес источника после команды /removesource.")
+        return
+    url = args.strip()
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sources WHERE url = ?", (url,))
+    if cur.rowcount == 0:
+        await message.reply("Этот источник не найден в списке.")
+    else:
+        await message.reply("Источник удален.")
+        logging.info(f"User {user_id} removed source: {url}")
+    conn.commit()
+    conn.close()
+
+@dp.message_handler(commands=['digest'])
+async def cmd_digest(message: types.Message):
+    """Handle the /digest command to fetch and process news."""
+    user_id = message.from_user.id
+    logging.info(f"User {user_id} requested digest.")
+    articles = await get_news()  # Fetch and classify news with default criteria
+    # Filter out relevant articles
+    relevant_articles = [art for art in articles if art['status'] == 'Relevant']
+    if relevant_articles:
+        # Send each relevant news (title + link)
+        for art in relevant_articles:
+            await message.answer(f"<b>{art['title']}</b>\n{art['link']}", parse_mode=ParseMode.HTML)
+            # Mark as sent in database
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            try:
+                cur.execute("INSERT OR IGNORE INTO sent_links (link) VALUES (?)", (art['link'],))
+            except Exception as e:
+                logging.error(f"Failed to insert sent link {art['link']}: {e}")
+            conn.commit()
+            conn.close()
+        logging.info(f"Sent {len(relevant_articles)} relevant news to user {user_id}.")
+        # If there were also some news that were not relevant, we do nothing further.
+    else:
+        # No relevant news found, ask user for a custom prompt
+        await message.answer("Релевантных новостей не найдено. Введите свой запрос или тему, чтобы уточнить поиск:")
+        logging.info(f"No relevant news found for user {user_id}, waiting for custom prompt.")
+        # Store the fetched articles list for this user to reuse in custom prompt analysis
+        pending_prompt[user_id] = articles
+
+@dp.message_handler(lambda msg: msg.from_user.id in pending_prompt and msg.text and not msg.text.startswith('/'))
+async def handle_custom_prompt(message: types.Message):
+    """Handle a user's custom prompt after /digest if no relevant news were found initially."""
+    user_id = message.from_user.id
+    user_prompt = message.text.strip()
+    logging.info(f"Received custom prompt from user {user_id}: {user_prompt}")
+    # Retrieve the news articles from the pending storage
+    articles = pending_prompt.get(user_id, [])
+    if not articles:
+        # No articles to process (should not happen normally)
+        await message.reply("Нет новостей для обработки. Попробуйте команду /digest сначала.")
+        # Clean up state
+        pending_prompt.pop(user_id, None)
+        return
+    # Process each previously fetched article with the user's custom prompt
+    relevant_articles = []
+    for art in articles:
+        title = art.get('title')
+        link = art.get('link')
+        summary = art.get('summary', '')
+        tags = art.get('tags')
+        category = art.get('category')
+        content = art.get('content')
+        # Use GPT to check relevance against user prompt
+        is_rel = await is_relevant(title, summary, tags, category, content, user_prompt=user_prompt)
+        if is_rel:
+            relevant_articles.append({'title': title, 'link': link})
+            # Mark as sent in database (avoid duplicates later)
+            conn = sqlite3.connect(DB_FILE)
+            cur = conn.cursor()
+            try:
+                cur.execute("INSERT OR IGNORE INTO sent_links (link) VALUES (?)", (link,))
+            except Exception as e:
+                logging.error(f"Failed to insert sent link {link}: {e}")
+            conn.commit()
+            conn.close()
+    # Clear the pending prompt state for this user
+    pending_prompt.pop(user_id, None)
+    # Send results to the user
+    if relevant_articles:
+        for art in relevant_articles:
+            await message.answer(f"<b>{art['title']}</b>\n{art['link']}", parse_mode=ParseMode.HTML)
+        logging.info(f"Sent {len(relevant_articles)} news to user {user_id} for custom prompt.")
+    else:
+        await message.reply("К сожалению, даже с учётом вашего запроса релевантных новостей не найдено.")
+        logging.info(f"No relevant news found for user {user_id} even with custom prompt.")
+
+# --- GPT relevance check ---
+async def is_relevant(title, summary, tags=None, category=None, content=None, user_prompt=None):
+    """
+    Use OpenAI GPT model to determine if a news item is relevant.
+    If user_prompt is provided, use it as criteria; otherwise use default A7A5 criteria.
+    Returns True if relevant, False if not.
+    """
+    # Build the context of the news
+    full_context = f"Заголовок: {title}\nОписание: {summary}"
+    if category:
+        full_context += f"\nКатегория: {category}"
+    if tags:
+        full_context += f"\nТеги: {', '.join(tags)}"
+    if content:
+        # truncate content to avoid overly long prompts
+        full_context += f"\nПолный текст: {content[:1000]}..."
+    # Build the prompt for GPT
+    if user_prompt:
+        prompt = (
+            f"Ты аналитик криптовалютного проекта A7A5. "
+            f"Проанализируй новость и определи, соответствует ли она следующему запросу или интересу:\n\"{user_prompt}\"\n\n"
+            f"{full_context}\n\n"
+            f"Ответь одним словом: Да или Нет."
+        )
+    else:
+        prompt = (
+            f"Ты аналитик криптовалютного проекта A7A5. "
+            f"Проанализируй новость и ответь: может ли она быть потенциально интересной проекту A7A5, "
+            f"если она касается криптовалют или стейблкоинов или цифрового рубля или Российского рубля или ставки ЦБ РФ или экономики Кыргызстана или финансовых регуляторов, или мировой криптоинфраструктуры?\n\n"
+            f"{full_context}\n\n"
+            f"Ответь одним словом: Да или Нет."
+        )
+    # Log details at DEBUG level
+    logging.debug("----- GPT Analysis Request -----")
+    logging.debug(f"Title: {title}")
+    logging.debug(f"Summary: {summary}")
+    if category:
+        logging.debug(f"Category: {category}")
+    if tags:
+        logging.debug(f"Tags: {tags}")
+    if user_prompt:
+        logging.debug(f"Custom Prompt: {user_prompt}")
+    logging.debug(f"Full context length: {len(full_context)} characters")
+    try:
+        # Call OpenAI ChatCompletion (GPT-4 model)
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=3,  # we only need a short yes/no answer
+            temperature=0
+        )
+        answer = response.choices[0].message['content'].strip().lower()
+        logging.debug(f"[GPT] Raw answer: {response.choices[0].message['content'].strip()}")
+        logging.debug(f"Interpreted answer: {answer}")
+        # Determine relevance: check if answer starts with "да"
+        is_relevant_flag = answer.startswith("да")
+        logging.debug(f"Relevance decision: {'Relevant' if is_relevant_flag else 'Not relevant'}")
+        return is_relevant_flag
+    except Exception as e:
+        logging.error(f"OpenAI API error: {e}")
+        return False
+
+# --- Fetch and process RSS feeds ---
+async def get_news():
+    """
+    Fetch news from all RSS sources and classify each as Relevant or Irrelevant.
+    Returns a list of articles (dict) with keys: title, link, summary, tags, category, content, status.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT url FROM sources")
+    source_urls = [row[0] for row in cur.fetchall()]
+    articles = []
+    for url in source_urls:
+        logging.debug(f"Parsing feed: {url}")
+        feed = feedparser.parse(url)
+        # Log feedparser errors if any
+        if getattr(feed, 'bozo', False):
+            err = feed.bozo_exception
+            logging.error(f"Error parsing feed {url}: {err}")
+            continue
+        for entry in feed.entries:
+            try:
+                title = entry.title
+            except AttributeError:
+                continue  # skip entries without title
+            link = entry.link if hasattr(entry, 'link') else ''
+            summary = entry.summary if hasattr(entry, 'summary') else ''
+            published = entry.published_parsed if hasattr(entry, 'published_parsed') else None
+            # Skip news older than 7 days (168 hours)
+            if published:
+                pub_dt = datetime(*published[:6])
+                if datetime.utcnow() - pub_dt > timedelta(hours=168):
+                    continue
+            # Check if this link was already sent
+            cur.execute("SELECT 1 FROM sent_links WHERE link = ?", (link,))
+            if cur.fetchone():
+                logging.debug(f"Already sent, skip: {link}")
+                continue
+            # Get tags and category if present
+            tags = [t['term'] for t in entry.tags] if hasattr(entry, 'tags') else []
+            category = entry.category if hasattr(entry, 'category') else None
+            # Get content if present (some feeds provide full content or description)
+            content = None
+            if hasattr(entry, 'content'):
+                try:
+                    content = entry.content[0].value
+                except Exception:
+                    content = None
+            # Determine relevance using GPT (default criteria)
+            relevant_flag = await is_relevant(title, summary, tags, category, content)
+            status = 'Relevant' if relevant_flag else 'Irrelevant'
+            articles.append({
+                'title': title,
+                'link': link,
+                'summary': summary,
+                'tags': tags,
+                'category': category,
+                'content': content,
+                'status': status
+            })
+            logging.debug(f"Article classified: {title} -> {status}")
+    # Close DB connection (do not commit here because we haven't inserted anything yet)
+    conn.close()
+    return articles
+
+# --- Scheduled Job (Stub) ---
+async def scheduled_job():
+    """A scheduled task that runs at a fixed time (stub for demonstration)."""
+    logging.info("Scheduled job running!")
+    # Example action: fetch news without sending (just to simulate periodic check)
+    try:
+        await get_news()
+    except Exception as e:
+        logging.error(f"Error in scheduled job: {e}")
+
+# --- Startup configuration ---
+async def on_startup(dp):
+    """Actions to perform on bot startup."""
+    # Initialize the database and default values
+    init_db()
+    # Remove any existing webhook (switch to polling mode)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.set_webhook(url='')
+        logging.info("Webhook removed, switched to polling mode.")
+    except Exception as e:
+        logging.error(f"Error removing webhook: {e}")
+    # Start the scheduler job (cron at 11:00 Moscow time)
+    scheduler.add_job(scheduled_job, "cron", hour=11, minute=0)
+    scheduler.start()
+    logging.info("Scheduler started.")
+
+if __name__ == '__main__':
+    # Start polling
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
