@@ -24,7 +24,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram.enums import ParseMode
 
 # Установка API-ключей и токенов из переменных окружения
-API_TOKEN = os.getenv("BOT_TOKEN")
+API_TOKEN = os.getenv("API_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY  # устанавливаем ключ для библиотеки openai (если будет использоваться)
 
