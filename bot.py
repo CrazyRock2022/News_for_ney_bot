@@ -220,14 +220,17 @@ async def list_sources_command(message: Message):
         await message.answer(response_text)
 
 # ------- GPT АНАЛИЗ -------
+from openai import OpenAI
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 async def gpt_check(prompt: str) -> str:
     """Отправляет запрос к OpenAI GPT-4 и возвращает ответ модели ('да' или 'нет')."""
     try:
         loop = asyncio.get_running_loop()
-        # Выполняем запрос к OpenAI в отдельном потоке, чтобы не блокировать бота
         response = await loop.run_in_executor(
             None,
-            lambda: openai.ChatCompletion.create(
+            lambda: client.chat.completions.create(
                 model="gpt-4",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=5,
@@ -238,7 +241,6 @@ async def gpt_check(prompt: str) -> str:
         return answer
     except Exception as e:
         logging.error(f"OpenAI API error: {e}", exc_info=True)
-        # В случае ошибки API считаем новость нерелевантной
         return "нет"
 
 # ------- ОБРАБОТКА НОВОСТЕЙ -------
