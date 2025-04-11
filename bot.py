@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Конфигурация
-API_TOKEN = os.getenv("BOT_TOKEN")
+API_TOKEN = os.getenv("API_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
