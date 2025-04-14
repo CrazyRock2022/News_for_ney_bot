@@ -142,7 +142,7 @@ async def cmd_start(message: Message):
     kb = InlineKeyboardBuilder()
     kb.button(text="Справка", callback_data="help")
     await message.answer(
-        f"Привет, {hbold(message.from_user.first_name)}! Я бот проекта A7A5.\n\n"
+        f"Привет, {message.from_user.first_name}! Я бот проекта A7A5.\n\n"
         "Я анализирую свежие новости из проверенных источников с помощью GPT "
         "и присылаю только то, что действительно важно.",
         reply_markup=kb.as_markup()
