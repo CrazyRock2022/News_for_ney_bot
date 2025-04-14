@@ -1,0 +1,218 @@
+import asyncio
+import logging
+import os
+import feedparser
+from datetime import datetime, timedelta
+from typing import List, Dict, Tuple
+
+from aiogram import Bot, Dispatcher, F
+from aiogram.enums import ParseMode
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.state import StatesGroup, State
+from aiogram import Router
+from aiogram.filters import Command, CommandStart
+from openai import OpenAI
+
+# Конфигурация
+load_dotenv()
+API_TOKEN = os.getenv("API_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# Настройка логгера
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+# Инициализация бота
+bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+router = Router()
+dp.include_router(router)
+
+# Ключевые слова
+RUSSIAN_KEYWORDS = [
+    "крипта", "биткоин", "эфириум", "стейблкоин", "рубль", "блокчейн",
+    "цифровой", "CBDC", "регулятор", "майнинг", "кошелек", "токен",
+    "децентрализация", "смарт-контракт", "биржа", "ликвидность"
+]
+
+ENGLISH_KEYWORDS = [
+    "crypto", "bitcoin", "ethereum", "stablecoin", "ruble", "blockchain",
+    "digital", "CBDC", "regulation", "mining", "wallet", "token",
+    "decentralization", "smart contract", "exchange", "liquidity"
+]
+
+# Методы фильтрации
+FILTER_METHODS = {
+    "keywords": "Только ключевые слова",
+    "gpt": "GPT-3.5 Turbo",
+    "openrouter": "OpenRouter",
+    "multistage": "Многоуровневая"
+}
+user_filters = {}
+
+# Состояния
+class UserStates(StatesGroup):
+    waiting_prompt = State()
+    waiting_filter = State()
+
+# База новостей
+sent_links = set()
+user_prompts = {}
+
+# Источники (NEWS_SOURCES остается без изменений из вашего предыдущего кода)
+
+# Основная логика фильтрации
+async def check_keywords(text: str) -> Tuple[bool, List[str]]:
+    text_lower = text.lower()
+    found_keywords = []
+    
+    for word in RUSSIAN_KEYWORDS + ENGLISH_KEYWORDS:
+        if word.lower() in text_lower:
+            found_keywords.append(word)
+    
+    return len(found_keywords) > 0, found_keywords
+
+async def ai_check(text: str, prompt: str, method: str) -> Tuple[bool, str]:
+    try:
+        client = OpenAI(
+            api_key=OPENAI_API_KEY if method == "gpt" else OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1" if method == "openrouter" else None
+        )
+        
+        messages = [
+            {"role": "system", "content": "Определи релевантность новости. Ответь ТОЛЬКО 'да' или 'нет'."},
+            {"role": "user", "content": f"{prompt}\n\nНовость:\n{text}"}
+        ]
+        
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model="gpt-3.5-turbo" if method == "gpt" else "mistralai/mixtral-8x7b",
+            messages=messages,
+            temperature=0.3
+        )
+        
+        decision = response.choices[0].message.content.lower()
+        return "да" in decision, decision
+    
+    except Exception as e:
+        logger.error(f"AI Error ({method}): {str(e)}")
+        return False, "error"
+
+# Обработчики команд
+@router.message(CommandStart())
+async def start(message: Message):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Выбрать фильтр", callback_data="set_filter")
+    await message.answer(
+        f"👋 Привет, {message.from_user.first_name}! Я аналитический бот A7A5.\n"
+        "Используй /filter для выбора метода анализа.",
+        reply_markup=builder.as_markup()
+    )
+
+@router.message(Command("filter"))
+async def filter_command(message: Message):
+    builder = InlineKeyboardBuilder()
+    for key, name in FILTER_METHODS.items():
+        builder.button(text=name, callback_data=f"filter_{key}")
+    builder.adjust(1)
+    await message.answer("🔍 Выберите метод фильтрации:", reply_markup=builder.as_markup())
+
+@router.callback_query(F.data.startswith("filter_"))
+async def set_filter(callback: CallbackQuery):
+    method = callback.data.split("_")[1]
+    user_filters[callback.from_user.id] = method
+    await callback.message.edit_text(f"✅ Выбран метод: {FILTER_METHODS[method]}")
+
+@router.message(Command("digest"))
+async def digest(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    method = user_filters.get(user_id, "multistage")
+    
+    await message.answer("🔎 Начинаю анализ новостей...")
+    results = []
+    stats = {"passed": 0, "filtered": 0, "errors": 0}
+
+    for url in NEWS_SOURCES:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:50]:
+                if entry.link in sent_links:
+                    continue
+                
+                content = f"{entry.title}\n{entry.get('summary', '')}"
+                keyword_check, found_words = await check_keywords(content)
+                
+                if keyword_check:
+                    results.append(entry.link)
+                    sent_links.add(entry.link)
+                    stats["passed"] += 1
+                    logger.info(f"Keywords matched: {', '.join(found_words)} | URL: {entry.link}")
+                    continue
+                
+                if method == "keywords":
+                    stats["filtered"] += 1
+                    logger.info(f"Filtered (keywords): {entry.link}")
+                    continue
+                
+                ai_result, reason = await ai_check(
+                    content,
+                    user_prompts.get(user_id, "Релевантно ли это криптовалютам и цифровой экономике?"),
+                    method if method in ["gpt", "openrouter"] else "gpt"
+                )
+                
+                if ai_result:
+                    results.append(entry.link)
+                    sent_links.add(entry.link)
+                    stats["passed"] += 1
+                else:
+                    stats["filtered"] += 1
+                    logger.info(f"Filtered ({method}): {reason} | URL: {entry.link}")
+                    
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"Error processing {url}: {str(e)}")
+
+    response = (
+        f"📊 Результаты:\n"
+        f"• Найдено: {stats['passed']}\n"
+        f"• Отфильтровано: {stats['filtered']}\n"
+        f"• Ошибок: {stats['errors']}\n\n"
+    )
+    
+    if results:
+        response += "🔗 Ссылки:\n" + "\n".join(results[:15])
+    else:
+        response += "❌ Ничего не найдено. Попробуйте изменить фильтры."
+    
+    await message.answer(response)
+
+@router.message(Command("status"))
+async def status(message: Message):
+    user_id = message.from_user.id
+    method = FILTER_METHODS.get(user_filters.get(user_id, "multistage"))
+    
+    status_msg = (
+        f"⚙️ Текущий статус:\n"
+        f"• Метод фильтрации: {method}\n"
+        f"• Активных ключей: {len(RUSSIAN_KEYWORDS + ENGLISH_KEYWORDS)}\n"
+        f"• Обработано ссылок: {len(sent_links)}\n"
+        f"• Пользовательских промптов: {len(user_prompts)}"
+    )
+    await message.answer(status_msg)
+
+# Запуск
+async def main():
+    await bot.delete_webhook()
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
