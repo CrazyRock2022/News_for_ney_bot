@@ -16,6 +16,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.filters import Command, CommandStart
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
 
 # ==================== ИНИЦИАЛИЗАЦИЯ ====================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -121,6 +122,19 @@ async def show_stats(callback: CallbackQuery):
         text += f"{source}:\n🔹 Всего: {data['total']}\n🔹 Подходящих: {data['passed']}\n\n"
     await callback.message.edit_text(text)
 
+from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
+
+async def main():
+    session = AiohttpSession()
+    bot = Bot(token=API_TOKEN, session=session)
+    
+    # Удаляем вебхук перед запуском
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Запускаем поллинг
+    await dp.start_polling(bot)
+    
 # ==================== ЗАПУСК ====================
 async def main():
     await dp.start_polling(bot)
