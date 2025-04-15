@@ -1,168 +1,136 @@
+# bot.py (основной файл)
 # -*- coding: utf-8 -*-
 import os
 import logging
 import asyncio
-import feedparser
-import sqlite3
-import json
-import yaml
+from typing import Dict, List, Optional
 from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Optional
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.enums import ParseMode
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.i18n import I18n, SimpleI18nMiddleware
 
-# ==================== КОНФИГУРАЦИЯ ====================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler()
-    ]
+from config import Config
+from managers import (
+    StatsManager,
+    SourceManager,
+    KeywordManager,
+    CacheManager,
+    RateLimiter,
+    FeedValidator
 )
-logger = logging.getLogger(__name__)
+from keyboards import (
+    main_menu_keyboard,
+    filters_menu_keyboard,
+    stats_pagination_keyboard,
+    confirmation_keyboard
+)
 
-# Загрузка переменных окружения
-API_TOKEN = os.getenv("API_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# Инициализация конфигурации
+config = Config()
 
-# Валидация конфигурации
-if not all([API_TOKEN, OPENAI_API_KEY]):
-    raise ValueError("Missing required environment variables")
+# Настройка локализации
+i18n = I18n(path=Path("locales"), default_locale="ru", domain="messages")
+i18n_middleware = SimpleI18nMiddleware(i18n)
 
-# ==================== ИНИЦИАЛИЗАЦИЯ БОТА ====================
-bot = Bot(
-    token=API_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+# Инициализация бота и диспетчера
+bot = Bot(token=config.API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
 router = Router()
 dp.include_router(router)
-
-# ==================== МОДУЛИ ====================
-class StatsManager:
-    """Менеджер статистики с использованием SQLite"""
-    def __init__(self):
-        self.conn = sqlite3.connect('stats.db', check_same_thread=False)
-        self._create_table()
-
-    def _create_table(self):
-        """Создание таблицы статистики"""
-        with self.conn:
-            self.conn.execute('''CREATE TABLE IF NOT EXISTS stats
-                (source TEXT PRIMARY KEY, total INTEGER, passed INTEGER)''')
-
-    def update(self, source: str, passed: bool):
-        """Обновление статистики"""
-        with self.conn:
-            self.conn.execute('''INSERT OR IGNORE INTO stats VALUES (?, 0, 0)''', (source,))
-            self.conn.execute('''UPDATE stats SET total = total + 1, passed = passed + ? 
-                              WHERE source = ?''', (int(passed), source))
-
-    def get_stats(self) -> Dict:
-        """Получение статистики"""
-        with self.conn:
-            cur = self.conn.execute('SELECT * FROM stats')
-            return {row[0]: {'total': row[1], 'passed': row[2]} for row in cur}
-
-class SourceManager:
-    """Менеджер источников RSS"""
-    def __init__(self):
-        self.sources_file = Path("sources.json")
-        self._init_file()
-
-    def _init_file(self):
-        """Инициализация файла с источниками"""
-        if not self.sources_file.exists():
-            self.sources_file.write_text('["https://forklog.com/feed/"]')
-
-    def get_sources(self) -> List[str]:
-        """Получение списка источников"""
-        return json.loads(self.sources_file.read_text(encoding='utf-8'))
-
-    def add_source(self, url: str):
-        """Добавление нового источника"""
-        sources = self.get_sources()
-        sources.append(url)
-        self.sources_file.write_text(json.dumps(sources), encoding='utf-8')
-
-class KeywordManager:
-    """Менеджер ключевых слов"""
-    def __init__(self):
-        self.keywords_file = Path("keywords.yaml")
-        self._init_file()
-
-    def _init_file(self):
-        """Инициализация файла с ключевыми словами"""
-        if not self.keywords_file.exists():
-            self.keywords_file.write_text(yaml.dump(["крипта", "биткоин"]))
-
-    def get_keywords(self) -> List[str]:
-        """Получение списка ключевых слов"""
-        return yaml.safe_load(self.keywords_file.read_text())
-
-    def add_keyword(self, keyword: str):
-        """Добавление нового ключевого слова"""
-        keywords = self.get_keywords()
-        keywords.append(keyword)
-        self.keywords_file.write_text(yaml.dump(keywords))
+i18n_middleware.setup(router)
 
 # Инициализация менеджеров
 stats = StatsManager()
 sources = SourceManager()
 keywords = KeywordManager()
+cache = CacheManager()
+limiter = RateLimiter(max_requests=10, period=60)  # 10 запросов в минуту
+validator = FeedValidator()
 
-# ==================== КЛАВИАТУРЫ ====================
-def main_menu_keyboard():
-    """Клавиатура главного меню"""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔍 Фильтры", callback_data="filter_menu")
-    builder.button(text="📊 Статистика", callback_data="show_stats")
-    builder.button(text="⚙️ Настройки", callback_data="settings_menu")
-    builder.adjust(2, 1)
-    return builder.as_markup()
+# ==================== ОБРАБОТЧИКИ С ОШИБКАМИ ====================
+async def error_handler(func, *args, **kwargs):
+    try:
+        return await func(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Error in {func.__name__}: {str(e)}")
+        await args[0].message.answer(config.i18n.get("error_occurred"))
 
-def filters_menu_keyboard():
-    """Клавиатура выбора фильтров"""
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔑 Ключевые слова", callback_data="set_filter_keywords")
-    builder.button(text="🤖 OpenAI", callback_data="set_filter_openai")
-    builder.button(text="🚀 OpenRouter", callback_data="set_filter_openrouter")
-    builder.button(text="◀️ Назад", callback_data="main_menu")
-    builder.adjust(2, 1)
-    return builder.as_markup()
-
-# ==================== ОБРАБОТЧИКИ ====================
-@router.message(CommandStart())
+# ==================== КОМАНДЫ И ХЕНДЛЕРЫ ====================
+@router.message(CommandStart()))
+@error_handler
 async def start(message: Message):
-    """Обработчик команды /start"""
-    await message.answer("🎛️ Главное меню:", reply_markup=main_menu_keyboard())
+    await message.answer(config.i18n.get("main_menu"), reply_markup=main_menu_keyboard())
 
-@router.callback_query(F.data == "filter_menu")
+@router.callback_query(F.data == "filter_menu"))
+@error_handler
+@limiter.check_limit
 async def filter_menu(callback: CallbackQuery):
-    """Меню фильтров"""
-    await callback.message.edit_text("🎚️ Выберите фильтр:", reply_markup=filters_menu_keyboard())
+    await callback.message.edit_text(config.i18n.get("filter_menu"), 
+                                  reply_markup=filters_menu_keyboard())
 
-@router.callback_query(F.data == "show_stats")
+@router.callback_query(F.data.startswith("stats_page_")))
+@error_handler
 async def show_stats(callback: CallbackQuery):
-    """Показать статистику"""
-    stats_data = stats.get_stats()
-    text = "📊 Статистика по источникам:\n\n"
+    page = int(callback.data.split("_")[2])
+    stats_data, total_pages = stats.get_paginated(page)
+    
+    text = config.i18n.get("stats_header")
     for source, data in stats_data.items():
-        text += f"{source}:\n🔹 Всего: {data['total']}\n🔹 Подходящих: {data['passed']}\n\n"
-    await callback.message.edit_text(text)
+        text += config.i18n.get("stats_item").format(
+            source=source,
+            total=data['total'],
+            passed=data['passed']
+        )
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=stats_pagination_keyboard(page, total_pages)
+    )
+
+# ==================== УПРАВЛЕНИЕ ИСТОЧНИКАМИ ====================
+class SourceStates(StatesGroup):
+    awaiting_url = State()
+    confirming = State()
+
+@router.callback_query(F.data == "add_source"))
+@error_handler
+async def add_source_start(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(config.i18n.get("enter_source_url"))
+    await state.set_state(SourceStates.awaiting_url)
+
+@router.message(SourceStates.awaiting_url))
+@error_handler
+async def process_source_url(message: Message, state: FSMContext):
+    if validator.is_valid_rss(message.text):
+        await state.update_data(url=message.text)
+        await message.answer(
+            config.i18n.get("confirm_source").format(url=message.text),
+            reply_markup=confirmation_keyboard()
+        )
+        await state.set_state(SourceStates.confirming)
+    else:
+        await message.answer(config.i18n.get("invalid_source"))
+
+@router.callback_query(SourceStates.confirming, F.data.in_(["confirm_yes", "confirm_no"]))
+@error_handler
+async def confirm_source(callback: CallbackQuery, state: FSMContext):
+    if callback.data == "confirm_yes":
+        data = await state.get_data()
+        sources.add_source(data['url'])
+        await callback.message.answer(config.i18n.get("source_added"))
+    else:
+        await callback.message.answer(config.i18n.get("source_cancelled"))
+    
+    await state.clear()
 
 # ==================== ЗАПУСК ====================
 async def main():
-    """Главная функция"""
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
