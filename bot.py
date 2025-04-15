@@ -98,13 +98,13 @@ class SourceStates(StatesGroup):
     awaiting_url = State()
     confirming = State()
 
-@router.callback_query(F.data == "add_source"))
+@router.callback_query(F.data == "add_source")
 @error_handler
 async def add_source_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(config.i18n.get("enter_source_url"))
     await state.set_state(SourceStates.awaiting_url)
 
-@router.message(SourceStates.awaiting_url))
+@router.message(SourceStates.awaiting_url)
 @error_handler
 async def process_source_url(message: Message, state: FSMContext):
     if validator.is_valid_rss(message.text):
