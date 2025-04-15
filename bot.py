@@ -62,19 +62,19 @@ async def error_handler(func, *args, **kwargs):
         await args[0].message.answer(config.i18n.get("error_occurred"))
 
 # ==================== КОМАНДЫ И ХЕНДЛЕРЫ ====================
-@router.message(CommandStart()))
+@router.message(CommandStart())
 @error_handler
 async def start(message: Message):
     await message.answer(config.i18n.get("main_menu"), reply_markup=main_menu_keyboard())
 
-@router.callback_query(F.data == "filter_menu"))
+@router.callback_query(F.data == "filter_menu")
 @error_handler
 @limiter.check_limit
 async def filter_menu(callback: CallbackQuery):
     await callback.message.edit_text(config.i18n.get("filter_menu"), 
                                   reply_markup=filters_menu_keyboard())
 
-@router.callback_query(F.data.startswith("stats_page_")))
+@router.callback_query(F.data.startswith("stats_page_"))
 @error_handler
 async def show_stats(callback: CallbackQuery):
     page = int(callback.data.split("_")[2])
