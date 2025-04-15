@@ -1,4 +1,8 @@
-aiogram==2.25.1
-feedparser
 apscheduler
 openai>=1.0.0
+aiogram>=3.0.0b7
+feedparser
+python-dotenv
+cachetools
+pyyaml
+aiohttp
